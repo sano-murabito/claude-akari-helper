@@ -243,6 +243,23 @@ body {
   background: #c82333;
 }
 
+.toolbar__copy-btn {
+  height: 32px;
+  padding: 0 12px;
+  background: #6c757d;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.toolbar__copy-btn:hover {
+  background: #5a6268;
+}
+
 .toolbar__autosave-label {
   font-size: 0.78rem;
   color: var(--color-muted);
