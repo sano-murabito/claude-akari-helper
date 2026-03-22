@@ -276,26 +276,7 @@ function findPropagationHint(orig: SolverState, basic: SolverState): HintResult 
       const resolved = basic.cells[r][c].domain;
       if (resolved === 'unknown') continue;
 
-      if (resolved === 'no-light') {
-        // Most common cause: Rule 1 — an existing light illuminates this cell
-        const light = findIlluminatingLight(orig, r, c);
-        if (light) {
-          return {
-            found: true,
-            focusCells: [{ row: r, col: c }, light],
-            explanation:
-              `(${r+1}, ${c+1}) のマスに注目してください。` +
-              `(${light.row+1}, ${light.col+1}) の明かりがすでにこのマスを照らしているため、` +
-              `ここには明かりを置くことができません。`,
-          };
-        }
-        return {
-          found: true,
-          focusCells: [{ row: r, col: c }],
-          explanation:
-            `(${r+1}, ${c+1}) のマスは、制約の伝播により明かりなしと確定できます。`,
-        };
-      }
+      if (resolved === 'no-light') continue; // 照らされたセルに明かりが置けないのは自明
 
       if (resolved === 'light') {
         // Most common cause: Rule 4 after Rule 1 — only candidate for some unlit cell
@@ -317,18 +298,6 @@ function findPropagationHint(orig: SolverState, basic: SolverState): HintResult 
             `(${r+1}, ${c+1}) のマスには、制約の伝播により明かりを置く必要があります。`,
         };
       }
-    }
-  }
-  return null;
-}
-
-/** Return the first existing light in orig that is in line-of-sight of (r,c). */
-function findIlluminatingLight(state: SolverState, r: number, c: number): Pos | null {
-  for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
-    let nr = r + dr; let nc = c + dc;
-    while (!isBlock(state, nr, nc)) {
-      if (state.cells[nr][nc].domain === 'light') return { row: nr, col: nc };
-      nr += dr; nc += dc;
     }
   }
   return null;
