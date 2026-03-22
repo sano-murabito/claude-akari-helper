@@ -121,9 +121,16 @@ export function computeHint(board: Board): HintResult {
   if (segHint) return segHint;
 
   // ── From here, run propagateBasic first ──────────────────────────────────
-  // Hints 6+ look for patterns that only emerge after basic propagation.
+  // Hints 5.5+ look for patterns that only emerge after basic propagation.
   const basic = buildSolverState(board);
   propagateBasic(basic);
+
+  // ── Hint 5.5: Propagation-discoverable cells ──────────────────────────────
+  // Catches chains like Rule1→Rule4 that aren't visible without propagation.
+  // Example: cell A is illuminated by an existing light (→ A can't be a light),
+  // which leaves only one candidate for cell B (→ B must be a light).
+  const propHint = findPropagationHint(orig, basic);
+  if (propHint) return propHint;
 
   // ── Hint 6: Trial-contradiction — 仮置き矛盾探索 ─────────────────────────
   // For each remaining unknown cell, try placing a light or no-light and
@@ -254,6 +261,117 @@ function findSegmentHint(state: SolverState): HintResult | null {
   }
 
   return null;
+}
+
+// ── Hint 5.5 helpers ───────────────────────────────────────────────────────
+
+/**
+ * Compare orig (no propagation) to basic (after propagateBasic).
+ * If any cell went from 'unknown' → 'light'/'no-light', surface a hint.
+ */
+function findPropagationHint(orig: SolverState, basic: SolverState): HintResult | null {
+  for (let r = 0; r < orig.rows; r++) {
+    for (let c = 0; c < orig.cols; c++) {
+      if (orig.cells[r][c].domain !== 'unknown') continue;
+      const resolved = basic.cells[r][c].domain;
+      if (resolved === 'unknown') continue;
+
+      if (resolved === 'no-light') {
+        // Most common cause: Rule 1 — an existing light illuminates this cell
+        const light = findIlluminatingLight(orig, r, c);
+        if (light) {
+          return {
+            found: true,
+            focusCells: [{ row: r, col: c }, light],
+            explanation:
+              `(${r+1}, ${c+1}) のマスに注目してください。` +
+              `(${light.row+1}, ${light.col+1}) の明かりがすでにこのマスを照らしているため、` +
+              `ここには明かりを置くことができません。`,
+          };
+        }
+        return {
+          found: true,
+          focusCells: [{ row: r, col: c }],
+          explanation:
+            `(${r+1}, ${c+1}) のマスは、制約の伝播により明かりなしと確定できます。`,
+        };
+      }
+
+      if (resolved === 'light') {
+        // Most common cause: Rule 4 after Rule 1 — only candidate for some unlit cell
+        const target = findSingleCandidateTarget(orig, basic, r, c);
+        if (target) {
+          return {
+            found: true,
+            focusCells: [{ row: r, col: c }, target],
+            explanation:
+              `(${target.row+1}, ${target.col+1}) のマスを照らせる可能性のある場所を考えると、` +
+              `他の候補マスはすでに別の明かりで照らされているため明かりを置けません。` +
+              `よって (${r+1}, ${c+1}) に明かりを置く必要があります。`,
+          };
+        }
+        return {
+          found: true,
+          focusCells: [{ row: r, col: c }],
+          explanation:
+            `(${r+1}, ${c+1}) のマスには、制約の伝播により明かりを置く必要があります。`,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/** Return the first existing light in orig that is in line-of-sight of (r,c). */
+function findIlluminatingLight(state: SolverState, r: number, c: number): Pos | null {
+  for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+    let nr = r + dr; let nc = c + dc;
+    while (!isBlock(state, nr, nc)) {
+      if (state.cells[nr][nc].domain === 'light') return { row: nr, col: nc };
+      nr += dr; nc += dc;
+    }
+  }
+  return null;
+}
+
+/**
+ * Given that propagation forced (r,c) to 'light', find a cell visible from
+ * (r,c) in orig whose only remaining candidate (in basic) is (r,c) itself.
+ */
+function findSingleCandidateTarget(
+  orig: SolverState, basic: SolverState, r: number, c: number,
+): Pos | null {
+  for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+    let nr = r + dr; let nc = c + dc;
+    while (!isBlock(orig, nr, nc)) {
+      const cell = orig.cells[nr][nc];
+      if (!cell.fixed && cell.domain === 'unknown') {
+        // Collect candidates for (nr,nc) using the basic (post-propagation) state
+        const cands = collectCandidatesInState(basic, nr, nc);
+        if (cands.length === 1 && cands[0][0] === r && cands[0][1] === c) {
+          return { row: nr, col: nc };
+        }
+      }
+      nr += dr; nc += dc;
+    }
+  }
+  return null;
+}
+
+/** All unknown cells in basic that could illuminate (r,c) including itself. */
+function collectCandidatesInState(
+  state: SolverState, r: number, c: number,
+): Array<[number, number]> {
+  const result: Array<[number, number]> = [];
+  if (state.cells[r][c].domain === 'unknown') result.push([r, c]);
+  for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+    let nr = r + dr; let nc = c + dc;
+    while (!isBlock(state, nr, nc)) {
+      if (state.cells[nr][nc].domain === 'unknown') result.push([nr, nc]);
+      nr += dr; nc += dc;
+    }
+  }
+  return result;
 }
 
 function checkSegmentForHint(
