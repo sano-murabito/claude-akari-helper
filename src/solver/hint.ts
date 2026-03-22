@@ -1,93 +1,95 @@
 import type { Board, HintResult, Pos, SolverState } from '../types';
-import { buildSolverState, propagate, isBlock } from './propagation';
+import {
+  buildSolverState,
+  propagateBasic,
+  cloneSolverState,
+  isBlock,
+  hasContradiction,
+  findContradictionWitness,
+} from './propagation';
 
 export function computeHint(board: Board): HintResult {
-  const state = buildSolverState(board);
-  propagate(state);
-  const { rows, cols, cells } = state;
+  // Hints 1–5 use the raw board state (no propagation) so we show the
+  // simplest reasoning first. Hints 6+ run propagateBasic first to find
+  // patterns that require at least one propagation pass.
 
-  // Hint 1: Number-0 cell with unknown neighbors
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cell = cells[r][c];
+  const orig = buildSolverState(board);
+
+  // ── Hint 1: Number-0 with unknown neighbors ─────────────────────────────
+  for (let r = 0; r < orig.rows; r++) {
+    for (let c = 0; c < orig.cols; c++) {
+      const cell = orig.cells[r][c];
       if (!cell.fixed || cell.clue !== 0) continue;
-      const unknownNeighbors = getUnknownNeighbors(state, r, c);
-      // Before propagation these would be unknown — use original board state
-      const origState = buildSolverState(board);
-      const origUnknown = getUnknownNeighbors(origState, r, c);
-      if (origUnknown.length > 0) {
+      const unknownNeighbors = getUnknownNeighbors(orig, r, c);
+      if (unknownNeighbors.length > 0) {
         return {
           found: true,
-          focusCells: [{ row: r, col: c }, ...origUnknown],
-          explanation: `(${r+1}, ${c+1}) の数字マス「0」に注目してください。数字0のマスには隣接する明かりが1つもあってはなりません。`,
+          focusCells: [{ row: r, col: c }, ...unknownNeighbors],
+          explanation: `(${r+1}, ${c+1}) の数字マス「0」に注目してください。` +
+            `数字0のマスには隣接する明かりが1つもあってはなりません。`,
         };
       }
-      void unknownNeighbors; // suppress unused warning
     }
   }
 
-  // Hint 2: Saturation — lit == clue, unknown neighbors still exist (pre-propagation)
-  const origState2 = buildSolverState(board);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cell = origState2.cells[r][c];
+  // ── Hint 2: Saturation — lit == clue, unknown neighbors still exist ──────
+  for (let r = 0; r < orig.rows; r++) {
+    for (let c = 0; c < orig.cols; c++) {
+      const cell = orig.cells[r][c];
       if (!cell.fixed || cell.clue === null || cell.clue === 0) continue;
       const clue = cell.clue;
-      const neighbors = getWhiteNeighbors(origState2, r, c);
-      const litCount = neighbors.filter(([nr, nc]) => origState2.cells[nr][nc].domain === 'light').length;
+      const neighbors = getWhiteNeighbors(orig, r, c);
+      const litCount = neighbors.filter(([nr, nc]) => orig.cells[nr][nc].domain === 'light').length;
       const unknownNeighbors = neighbors
-        .filter(([nr, nc]) => origState2.cells[nr][nc].domain === 'unknown')
+        .filter(([nr, nc]) => orig.cells[nr][nc].domain === 'unknown')
         .map(([nr, nc]) => ({ row: nr, col: nc }));
 
       if (litCount === clue && unknownNeighbors.length > 0) {
         return {
           found: true,
           focusCells: [{ row: r, col: c }, ...unknownNeighbors],
-          explanation: `(${r+1}, ${c+1}) の数字マス「${clue}」に注目してください。すでに必要数の明かりが揃っています。残りの隣接マスには明かりを置けません。`,
+          explanation: `(${r+1}, ${c+1}) の数字マス「${clue}」に注目してください。` +
+            `すでに必要数の明かりが揃っています。残りの隣接マスには明かりを置けません。`,
         };
       }
     }
   }
 
-  // Hint 3: Forcing — lit + unknown == clue
-  const origState3 = buildSolverState(board);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cell = origState3.cells[r][c];
+  // ── Hint 3: Forcing — lit + unknown == clue ──────────────────────────────
+  for (let r = 0; r < orig.rows; r++) {
+    for (let c = 0; c < orig.cols; c++) {
+      const cell = orig.cells[r][c];
       if (!cell.fixed || cell.clue === null) continue;
       const clue = cell.clue;
-      const neighbors = getWhiteNeighbors(origState3, r, c);
-      const litCount = neighbors.filter(([nr, nc]) => origState3.cells[nr][nc].domain === 'light').length;
+      const neighbors = getWhiteNeighbors(orig, r, c);
+      const litCount = neighbors.filter(([nr, nc]) => orig.cells[nr][nc].domain === 'light').length;
       const unknownNeighbors = neighbors
-        .filter(([nr, nc]) => origState3.cells[nr][nc].domain === 'unknown')
+        .filter(([nr, nc]) => orig.cells[nr][nc].domain === 'unknown')
         .map(([nr, nc]) => ({ row: nr, col: nc }));
 
       if (litCount + unknownNeighbors.length === clue && unknownNeighbors.length > 0) {
         return {
           found: true,
           focusCells: [{ row: r, col: c }, ...unknownNeighbors],
-          explanation: `(${r+1}, ${c+1}) の数字マス「${clue}」に注目してください。あと${unknownNeighbors.length}個の明かりが必要で、置ける場所がちょうどその数しかありません。`,
+          explanation: `(${r+1}, ${c+1}) の数字マス「${clue}」に注目してください。` +
+            `あと${unknownNeighbors.length}個の明かりが必要で、置ける場所がちょうどその数しかありません。`,
         };
       }
     }
   }
 
-  // Hint 4: Single illumination path
-  const origState4 = buildSolverState(board);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cell = origState4.cells[r][c];
+  // ── Hint 4: Single illumination path ─────────────────────────────────────
+  for (let r = 0; r < orig.rows; r++) {
+    for (let c = 0; c < orig.cols; c++) {
+      const cell = orig.cells[r][c];
       if (cell.fixed || cell.domain === 'no-light' || cell.domain === 'light') continue;
 
-      // Already illuminated?
       let alreadyLit = false;
       for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-        let nr = r + dr;
-        let nc = c + dc;
-        while (!isBlock(origState4, nr, nc)) {
-          if (origState4.cells[nr][nc].domain === 'light') { alreadyLit = true; break; }
-          nr += dr;
-          nc += dc;
+        let nr = r + dr; let nc = c + dc;
+        while (!isBlock(orig, nr, nc)) {
+          if (orig.cells[nr][nc].domain === 'light') { alreadyLit = true; break; }
+          nr += dr; nc += dc;
         }
         if (alreadyLit) break;
       }
@@ -96,14 +98,10 @@ export function computeHint(board: Board): HintResult {
       const candidates: Pos[] = [];
       if (cell.domain === 'unknown') candidates.push({ row: r, col: c });
       for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-        let nr = r + dr;
-        let nc = c + dc;
-        while (!isBlock(origState4, nr, nc)) {
-          if (origState4.cells[nr][nc].domain === 'unknown') {
-            candidates.push({ row: nr, col: nc });
-          }
-          nr += dr;
-          nc += dc;
+        let nr = r + dr; let nc = c + dc;
+        while (!isBlock(orig, nr, nc)) {
+          if (orig.cells[nr][nc].domain === 'unknown') candidates.push({ row: nr, col: nc });
+          nr += dr; nc += dc;
         }
       }
 
@@ -111,16 +109,58 @@ export function computeHint(board: Board): HintResult {
         return {
           found: true,
           focusCells: [{ row: r, col: c }, ...candidates],
-          explanation: `(${r+1}, ${c+1}) のマスに注目してください。このマスを照らせる可能性のある場所が1つしかありません。`,
+          explanation: `(${r+1}, ${c+1}) のマスに注目してください。` +
+            `このマスを照らせる可能性のある場所が1つしかありません。`,
         };
       }
     }
   }
 
-  // Hint 5: Segment constriction
-  const origState5 = buildSolverState(board);
-  const segmentHint = findSegmentHint(origState5);
-  if (segmentHint) return segmentHint;
+  // ── Hint 5: Segment constriction ─────────────────────────────────────────
+  const segHint = findSegmentHint(orig);
+  if (segHint) return segHint;
+
+  // ── From here, run propagateBasic first ──────────────────────────────────
+  // Hints 6+ look for patterns that only emerge after basic propagation.
+  const basic = buildSolverState(board);
+  propagateBasic(basic);
+
+  // ── Hint 6: Trial-contradiction — 仮置き矛盾探索 ─────────────────────────
+  // For each remaining unknown cell, try placing a light or no-light and
+  // check whether basic propagation leads to a contradiction.
+  for (let r = 0; r < basic.rows; r++) {
+    for (let c = 0; c < basic.cols; c++) {
+      if (basic.cells[r][c].domain !== 'unknown') continue;
+
+      // ── Try as light ──
+      const tryLight = cloneSolverState(basic);
+      tryLight.cells[r][c].domain = 'light';
+      propagateBasic(tryLight);
+      if (hasContradiction(tryLight)) {
+        const witness = findContradictionWitness(tryLight)
+          .map(([wr, wc]) => ({ row: wr, col: wc }));
+        return {
+          found: true,
+          focusCells: [{ row: r, col: c }, ...witness.slice(0, 3)],
+          explanation: buildTrialExplanation(r, c, 'light', witness),
+        };
+      }
+
+      // ── Try as no-light ──
+      const tryNoLight = cloneSolverState(basic);
+      tryNoLight.cells[r][c].domain = 'no-light';
+      propagateBasic(tryNoLight);
+      if (hasContradiction(tryNoLight)) {
+        const witness = findContradictionWitness(tryNoLight)
+          .map(([wr, wc]) => ({ row: wr, col: wc }));
+        return {
+          found: true,
+          focusCells: [{ row: r, col: c }, ...witness.slice(0, 3)],
+          explanation: buildTrialExplanation(r, c, 'no-light', witness),
+        };
+      }
+    }
+  }
 
   return {
     found: false,
@@ -129,15 +169,41 @@ export function computeHint(board: Board): HintResult {
   };
 }
 
+// ── Explanation builders ───────────────────────────────────────────────────
+
+function buildTrialExplanation(
+  r: number, c: number,
+  tried: 'light' | 'no-light',
+  witness: Pos[],
+): string {
+  const pos = `(${r+1}, ${c+1})`;
+  if (tried === 'light') {
+    const detail = witness.length > 0
+      ? `すると ${formatPos(witness[0])} 付近で矛盾が生じます。`
+      : '矛盾が生じます。';
+    return `${pos} のマスに明かりを仮に置いてみましょう。${detail}` +
+      `よってここには明かりを置けません。`;
+  } else {
+    const detail = witness.length > 0
+      ? `すると ${formatPos(witness[0])} 付近で矛盾が生じます。`
+      : '矛盾が生じます。';
+    return `${pos} のマスが明かりなしだと仮定してみましょう。${detail}` +
+      `よってここには必ず明かりを置く必要があります。`;
+  }
+}
+
+function formatPos(p: Pos): string {
+  return `(${p.row+1}, ${p.col+1})`;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
 function getUnknownNeighbors(state: SolverState, r: number, c: number): Pos[] {
   const result: Pos[] = [];
   for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-    const nr = r + dr;
-    const nc = c + dc;
+    const nr = r + dr; const nc = c + dc;
     if (nr >= 0 && nr < state.rows && nc >= 0 && nc < state.cols && !state.cells[nr][nc].fixed) {
-      if (state.cells[nr][nc].domain === 'unknown') {
-        result.push({ row: nr, col: nc });
-      }
+      if (state.cells[nr][nc].domain === 'unknown') result.push({ row: nr, col: nc });
     }
   }
   return result;
@@ -146,8 +212,7 @@ function getUnknownNeighbors(state: SolverState, r: number, c: number): Pos[] {
 function getWhiteNeighbors(state: SolverState, r: number, c: number): Array<[number, number]> {
   const result: Array<[number, number]> = [];
   for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-    const nr = r + dr;
-    const nc = c + dc;
+    const nr = r + dr; const nc = c + dc;
     if (nr >= 0 && nr < state.rows && nc >= 0 && nc < state.cols && !state.cells[nr][nc].fixed) {
       result.push([nr, nc]);
     }
@@ -158,7 +223,6 @@ function getWhiteNeighbors(state: SolverState, r: number, c: number): Array<[num
 function findSegmentHint(state: SolverState): HintResult | null {
   const { rows, cols } = state;
 
-  // Find row segments
   for (let r = 0; r < rows; r++) {
     let segStart = 0;
     while (segStart < cols) {
@@ -166,19 +230,14 @@ function findSegmentHint(state: SolverState): HintResult | null {
       if (segStart >= cols) break;
       let segEnd = segStart;
       while (segEnd < cols && !isBlock(state, r, segEnd)) segEnd++;
-
       const segCells: Pos[] = [];
-      for (let c = segStart; c < segEnd; c++) {
-        segCells.push({ row: r, col: c });
-      }
-
-      const hint = checkSegmentForHint(state, segCells, r + 1, segStart + 1, segEnd, '行');
+      for (let c = segStart; c < segEnd; c++) segCells.push({ row: r, col: c });
+      const hint = checkSegmentForHint(state, segCells, r + 1, '行');
       if (hint) return hint;
       segStart = segEnd + 1;
     }
   }
 
-  // Find column segments
   for (let c = 0; c < cols; c++) {
     let segStart = 0;
     while (segStart < rows) {
@@ -186,13 +245,9 @@ function findSegmentHint(state: SolverState): HintResult | null {
       if (segStart >= rows) break;
       let segEnd = segStart;
       while (segEnd < rows && !isBlock(state, segEnd, c)) segEnd++;
-
       const segCells: Pos[] = [];
-      for (let r = segStart; r < segEnd; r++) {
-        segCells.push({ row: r, col: c });
-      }
-
-      const hint = checkSegmentForHint(state, segCells, segStart + 1, c + 1, segEnd, '列');
+      for (let r = segStart; r < segEnd; r++) segCells.push({ row: r, col: c });
+      const hint = checkSegmentForHint(state, segCells, c + 1, '列');
       if (hint) return hint;
       segStart = segEnd + 1;
     }
@@ -205,16 +260,11 @@ function checkSegmentForHint(
   state: SolverState,
   segCells: Pos[],
   lineNum: number,
-  startPos: number,
-  endPos: number,
   direction: string,
 ): HintResult | null {
-  void startPos; void endPos; // unused but kept for potential future use
-
   const unknowns = segCells.filter(p => state.cells[p.row][p.col].domain === 'unknown');
 
   for (const u of unknowns) {
-    // Temporarily mark this unknown as no-light
     const origDomain = state.cells[u.row][u.col].domain;
     state.cells[u.row][u.col].domain = 'no-light';
 
@@ -227,22 +277,17 @@ function checkSegmentForHint(
       let canBeIlluminated = cell.domain === 'unknown';
       if (!canBeIlluminated) {
         for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
-          let nr = p.row + dr;
-          let nc = p.col + dc;
+          let nr = p.row + dr; let nc = p.col + dc;
           while (!isBlock(state, nr, nc)) {
             const sc = state.cells[nr][nc];
             if (sc.domain === 'light' || sc.domain === 'unknown') { canBeIlluminated = true; break; }
-            nr += dr;
-            nc += dc;
+            nr += dr; nc += dc;
           }
           if (canBeIlluminated) break;
         }
       }
 
-      if (!canBeIlluminated) {
-        createsUnilluminable = true;
-        break;
-      }
+      if (!canBeIlluminated) { createsUnilluminable = true; break; }
     }
 
     state.cells[u.row][u.col].domain = origDomain;
@@ -251,7 +296,8 @@ function checkSegmentForHint(
       return {
         found: true,
         focusCells: segCells,
-        explanation: `${lineNum}${direction}目のマス群に注目してください。すべてのマスが照らされるためには、明かりをどこに置くべきか考えてみましょう。`,
+        explanation: `${lineNum}${direction}目のマス群に注目してください。` +
+          `すべてのマスが照らされるためには、明かりをどこに置くべきか考えてみましょう。`,
       };
     }
   }
