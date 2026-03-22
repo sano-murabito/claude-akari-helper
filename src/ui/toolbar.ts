@@ -1,7 +1,7 @@
 import type { EditMode } from '../types';
 import { getState, setEditMode, resizeBoard, setState } from '../state/store';
 import { namedSave, listNamedSaves, deleteNamedSave, loadAutoSave } from '../storage';
-import { copyBoardToClipboard } from './board-export';
+import { copyBoardToClipboard, textToBoard } from './board-export';
 
 const TOOLS: Array<{ mode: EditMode; label: string; title: string }> = [
   { mode: 'empty', label: '消去', title: 'マスを空白にする' },
@@ -190,6 +190,69 @@ export function renderToolbar(container: HTMLElement, onUpdate: () => void): voi
     });
   });
   saveSection.appendChild(copyBtn);
+
+  // Import board from text button
+  const importBtn = document.createElement('button');
+  importBtn.className = 'toolbar__import-btn';
+  importBtn.textContent = 'テキストから読み込み';
+  importBtn.title = 'テキスト形式の盤面を貼り付けて読み込みます';
+
+  const importArea = document.createElement('div');
+  importArea.className = 'toolbar__import-area';
+  importArea.style.display = 'none';
+
+  const textarea = document.createElement('textarea');
+  textarea.rows = 10;
+  textarea.cols = 40;
+  textarea.placeholder = '盤面テキストを貼り付けてください…';
+  textarea.className = 'toolbar__import-textarea';
+  importArea.appendChild(textarea);
+
+  const importErrorMsg = document.createElement('span');
+  importErrorMsg.className = 'toolbar__import-error';
+  importErrorMsg.style.color = 'red';
+  importErrorMsg.style.display = 'none';
+  importArea.appendChild(importErrorMsg);
+
+  const importApplyBtn = document.createElement('button');
+  importApplyBtn.textContent = '適用';
+  importApplyBtn.className = 'toolbar__apply-btn';
+  importApplyBtn.addEventListener('click', () => {
+    const parsed = textToBoard(textarea.value);
+    if (!parsed) {
+      importErrorMsg.textContent = '盤面の読み込みに失敗しました。形式を確認してください。';
+      importErrorMsg.style.display = '';
+      return;
+    }
+    const hasContent = getState().board.cells.some(row =>
+      row.some(cell => cell.kind !== 'empty')
+    );
+    if (!hasContent || confirm('現在の盤面を上書きしますか？')) {
+      setState({ board: parsed, checkResult: null, hintResult: null, answerResult: null });
+      importArea.style.display = 'none';
+      textarea.value = '';
+      importErrorMsg.style.display = 'none';
+      onUpdate();
+    }
+  });
+  importArea.appendChild(importApplyBtn);
+
+  const importCancelBtn = document.createElement('button');
+  importCancelBtn.textContent = 'キャンセル';
+  importCancelBtn.className = 'toolbar__load-btn';
+  importCancelBtn.addEventListener('click', () => {
+    importArea.style.display = 'none';
+    textarea.value = '';
+    importErrorMsg.style.display = 'none';
+  });
+  importArea.appendChild(importCancelBtn);
+
+  importBtn.addEventListener('click', () => {
+    importArea.style.display = importArea.style.display === 'none' ? '' : 'none';
+  });
+
+  saveSection.appendChild(importBtn);
+  saveSection.appendChild(importArea);
 
   // Auto-save timestamp
   const autoSaveData = loadAutoSave();

@@ -1,4 +1,4 @@
-import type { Board } from '../types';
+import type { Board, Cell } from '../types';
 
 const CELL_CHAR: Record<string, string> = {
   empty: '.',
@@ -33,6 +33,46 @@ export function boardToText(board: Board): string {
     '',
     `ライト配置数: ${lightCount}`,
   ].join('\n');
+}
+
+export function textToBoard(text: string): Board | null {
+  const lines = text.split('\n');
+  const gridLinePattern = /^[.*x#01234]+$/;
+
+  // Find all contiguous blocks of grid lines and pick the largest
+  let bestBlock: string[] = [];
+  let currentBlock: string[] = [];
+  for (const line of lines) {
+    if (gridLinePattern.test(line)) {
+      currentBlock.push(line);
+    } else {
+      if (currentBlock.length > bestBlock.length) bestBlock = currentBlock;
+      currentBlock = [];
+    }
+  }
+  if (currentBlock.length > bestBlock.length) bestBlock = currentBlock;
+
+  const gridLines = bestBlock;
+  if (gridLines.length < 2) return null;
+
+  const cols = gridLines[0].length;
+  if (cols < 2 || !gridLines.every(l => l.length === cols)) return null;
+
+  const rows = gridLines.length;
+  if (rows > 20 || cols > 20) return null;
+
+  const cells: Cell[][] = gridLines.map(line =>
+    line.split('').map(ch => {
+      if (ch === '.') return { kind: 'empty', clue: null };
+      if (ch === '*') return { kind: 'light', clue: null };
+      if (ch === 'x') return { kind: 'no-light', clue: null };
+      if (ch === '#') return { kind: 'block', clue: null };
+      const n = parseInt(ch, 10);
+      return { kind: 'number', clue: n };
+    })
+  );
+
+  return { rows, cols, cells };
 }
 
 export async function copyBoardToClipboard(board: Board): Promise<void> {
