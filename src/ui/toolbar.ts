@@ -1,6 +1,7 @@
 import type { EditMode } from '../types';
 import { getState, setEditMode, resizeBoard, setState } from '../state/store';
 import { namedSave, listNamedSaves, deleteNamedSave, loadAutoSave } from '../storage';
+import { copyBoardToClipboard } from './board-export';
 
 const TOOLS: Array<{ mode: EditMode; label: string; title: string }> = [
   { mode: 'empty', label: '消去', title: 'マスを空白にする' },
@@ -173,6 +174,22 @@ export function renderToolbar(container: HTMLElement, onUpdate: () => void): voi
     }
   });
   saveSection.appendChild(deleteBtn);
+
+  // Copy board text to clipboard button
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'toolbar__copy-btn';
+  copyBtn.textContent = '盤面をコピー';
+  copyBtn.title = '盤面情報をテキストとしてクリップボードにコピーします';
+  copyBtn.addEventListener('click', () => {
+    copyBoardToClipboard(getState().board).then(() => {
+      copyBtn.textContent = 'コピーしました！';
+      setTimeout(() => { copyBtn.textContent = '盤面をコピー'; }, 1500);
+    }).catch(() => {
+      copyBtn.textContent = 'コピー失敗';
+      setTimeout(() => { copyBtn.textContent = '盤面をコピー'; }, 1500);
+    });
+  });
+  saveSection.appendChild(copyBtn);
 
   // Auto-save timestamp
   const autoSaveData = loadAutoSave();
