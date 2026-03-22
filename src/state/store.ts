@@ -1,4 +1,5 @@
 import type { AppState, Board, Cell, EditMode } from '../types';
+import { autoSave, loadAutoSave } from '../storage';
 
 function createEmptyBoard(rows: number, cols: number): Board {
   const cells: Cell[][] = [];
@@ -11,8 +12,9 @@ function createEmptyBoard(rows: number, cols: number): Board {
   return { rows, cols, cells };
 }
 
+const savedData = loadAutoSave();
 const initialState: AppState = {
-  board: createEmptyBoard(5, 5),
+  board: savedData?.board ?? createEmptyBoard(5, 5),
   editMode: 'light',
   checkResult: null,
   hintResult: null,
@@ -28,6 +30,7 @@ export function getState(): AppState {
 
 export function setState(patch: Partial<AppState>): void {
   state = { ...state, ...patch };
+  if (patch.board) autoSave(state.board);
   subscribers.forEach(fn => fn(state));
 }
 

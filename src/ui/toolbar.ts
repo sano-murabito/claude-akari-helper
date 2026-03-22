@@ -1,5 +1,6 @@
 import type { EditMode } from '../types';
-import { getState, setEditMode, resizeBoard } from '../state/store';
+import { getState, setEditMode, resizeBoard, setState } from '../state/store';
+import { namedSave, listNamedSaves, deleteNamedSave, loadAutoSave } from '../storage';
 
 const TOOLS: Array<{ mode: EditMode; label: string; title: string }> = [
   { mode: 'empty', label: '消去', title: 'マスを空白にする' },
@@ -95,4 +96,95 @@ export function renderToolbar(container: HTMLElement, onUpdate: () => void): voi
   sizeSection.appendChild(applyBtn);
 
   container.appendChild(sizeSection);
+
+  // Save management section
+  const saveSection = document.createElement('div');
+  saveSection.className = 'toolbar__save';
+
+  const saveLabel = document.createElement('span');
+  saveLabel.className = 'toolbar__label';
+  saveLabel.textContent = '保存:';
+  saveSection.appendChild(saveLabel);
+
+  // Named save button
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'toolbar__save-btn';
+  saveBtn.textContent = '名前を付けて保存';
+  saveBtn.addEventListener('click', () => {
+    const name = prompt('保存名を入力してください:');
+    if (name && name.trim()) {
+      namedSave(name.trim(), getState().board);
+      onUpdate();
+    }
+  });
+  saveSection.appendChild(saveBtn);
+
+  // Named saves dropdown + load/delete
+  const saves = listNamedSaves();
+
+  const select = document.createElement('select');
+  select.className = 'toolbar__load-select';
+  if (saves.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '（保存なし）';
+    select.appendChild(opt);
+    select.disabled = true;
+  } else {
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '保存済みを選択…';
+    select.appendChild(placeholder);
+    for (const s of saves) {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      const date = new Date(s.savedAt).toLocaleString('ja-JP', {
+        month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+      });
+      opt.textContent = `${s.name}（${date}）`;
+      select.appendChild(opt);
+    }
+  }
+  saveSection.appendChild(select);
+
+  const loadBtn = document.createElement('button');
+  loadBtn.className = 'toolbar__load-btn';
+  loadBtn.textContent = '読み込み';
+  loadBtn.addEventListener('click', () => {
+    const name = select.value;
+    if (!name) return;
+    const found = listNamedSaves().find(s => s.name === name);
+    if (found) {
+      setState({ board: found.board, checkResult: null, hintResult: null, answerResult: null });
+      onUpdate();
+    }
+  });
+  saveSection.appendChild(loadBtn);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'toolbar__delete-btn';
+  deleteBtn.textContent = '削除';
+  deleteBtn.addEventListener('click', () => {
+    const name = select.value;
+    if (!name) return;
+    if (confirm(`「${name}」を削除しますか？`)) {
+      deleteNamedSave(name);
+      onUpdate();
+    }
+  });
+  saveSection.appendChild(deleteBtn);
+
+  // Auto-save timestamp
+  const autoSaveData = loadAutoSave();
+  if (autoSaveData) {
+    const autoLabel = document.createElement('span');
+    autoLabel.className = 'toolbar__autosave-label';
+    const date = new Date(autoSaveData.savedAt).toLocaleString('ja-JP', {
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+    autoLabel.textContent = `自動保存: ${date}`;
+    saveSection.appendChild(autoLabel);
+  }
+
+  container.appendChild(saveSection);
 }
