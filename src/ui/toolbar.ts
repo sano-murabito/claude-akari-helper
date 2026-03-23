@@ -1,7 +1,7 @@
 import type { EditMode } from '../types';
 import { getState, setEditMode, resizeBoard, setState } from '../state/store';
 import { namedSave, listNamedSaves, deleteNamedSave, loadAutoSave } from '../storage';
-import { copyBoardToClipboard, textToBoard } from './board-export';
+import { copyBoardToClipboard, copyImagePromptToClipboard, textToBoard } from './board-export';
 
 const TOOLS: Array<{ mode: EditMode; label: string; title: string }> = [
   { mode: 'empty', label: '消去', title: 'マスを空白にする' },
@@ -190,6 +190,22 @@ export function renderToolbar(container: HTMLElement, onUpdate: () => void): voi
     });
   });
   saveSection.appendChild(copyBtn);
+
+  // Copy image prompt to clipboard button
+  const promptBtn = document.createElement('button');
+  promptBtn.className = 'toolbar__copy-btn';
+  promptBtn.textContent = '画像取り込みプロンプトをコピー';
+  promptBtn.title = '外部AIサービスで盤面画像をテキスト化するためのプロンプトをクリップボードにコピーします';
+  promptBtn.addEventListener('click', () => {
+    copyImagePromptToClipboard().then(() => {
+      promptBtn.textContent = 'コピーしました！';
+      setTimeout(() => { promptBtn.textContent = '画像取り込みプロンプトをコピー'; }, 1500);
+    }).catch(() => {
+      promptBtn.textContent = 'コピー失敗';
+      setTimeout(() => { promptBtn.textContent = '画像取り込みプロンプトをコピー'; }, 1500);
+    });
+  });
+  saveSection.appendChild(promptBtn);
 
   // Import board from text button
   const importBtn = document.createElement('button');

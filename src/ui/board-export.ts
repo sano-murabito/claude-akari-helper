@@ -75,6 +75,44 @@ export function textToBoard(text: string): Board | null {
   return { rows, cols, cells };
 }
 
+export function generateImagePromptText(): string {
+  return `以下の美術館パズル（Akari / Light Up）の盤面画像を読み取り、テキスト形式に変換してください。
+
+【出力形式】
+各行を1行のテキストとして出力し、以下の記号を使用してください：
+  .  （ドット）   : 白マス（空のマス）
+  #  （シャープ） : 数字なし黒マス
+  0〜4（数字）    : 数字付き黒マス（その数字をそのまま記入）
+
+出力は盤面グリッドのみとし、余計な説明文は含めないでください。
+全ての行が同じ文字数になるようにしてください。
+
+【出力例（5×5の場合）】
+..2..
+.#.#.
+.....
+.#.#.
+..2..
+
+上記の形式で、画像の盤面をテキストに変換してください。`;
+}
+
+export async function copyImagePromptToClipboard(): Promise<void> {
+  const text = generateImagePromptText();
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
+}
+
 export async function copyBoardToClipboard(board: Board): Promise<void> {
   const text = boardToText(board);
   if (navigator.clipboard) {
